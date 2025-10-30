@@ -297,12 +297,14 @@ def find_best_match(df, synonyms, fallback_type="text"):
         scores.sort(reverse=True)
         return scores[0][1] if scores else (0 if len(df.columns) == 1 else 1)
 
-def build_base_df(df, var_col, qty_col, text_col):
-    """Build base dataframe with FIXED column names"""
+def build_base_df(df, type_col, brand_col, var_col, qty_col, skuid_col):
+    """Build base dataframe with FIXED column names from user selections"""
     out = pd.DataFrame({
+        "Type": df[type_col].astype(str).str.strip(),
+        "Brand": df[brand_col].astype(str).str.strip(),
         "Variation": df[var_col].astype(str).str.strip(),
         "Quantity": pd.to_numeric(df[qty_col], errors="coerce"),
-        "SkuID": df[text_col].astype(str),
+        "SkuID": df[skuid_col].astype(str).str.strip(),
         "OriginalIndex": range(len(df))
     })
 
@@ -600,7 +602,7 @@ with st.expander("View columns"):
 # ============================================================================
 
 st.markdown("### Column Settings")
-st.caption("Map your file columns to output format (Type | Brand | Variation | SkuID)")
+st.caption("Map your file columns to output format (Quantity | Type | Variation | SkuID)")
 
 var_idx = find_best_match(raw_df, VAR_SYNS, "text") or 0
 qty_idx = find_best_match(raw_df, QTY_SYNS, "num") or (0 if len(raw_df.columns) == 1 else 1)
@@ -608,51 +610,72 @@ name_idx = find_best_match(raw_df, NAME_SYNS, "text") or var_idx
 
 saved_cols = st.session_state.get("selected_columns", {})
 if saved_cols and saved_cols.get("file_hash") == file_hash:
+    type_col = saved_cols.get("type_col", raw_df.columns[name_idx])
+    brand_col = saved_cols.get("brand_col", raw_df.columns[name_idx])
     var_col = saved_cols.get("var_col", raw_df.columns[var_idx])
     qty_col = saved_cols.get("qty_col", raw_df.columns[qty_idx])
-    text_source_col = saved_cols.get("text_col", raw_df.columns[name_idx])
+    skuid_col = saved_cols.get("skuid_col", raw_df.columns[name_idx])
+
+    if type_col not in raw_df.columns:
+        type_col = raw_df.columns[name_idx]
+    if brand_col not in raw_df.columns:
+        brand_col = raw_df.columns[name_idx]
     if var_col not in raw_df.columns:
         var_col = raw_df.columns[var_idx]
     if qty_col not in raw_df.columns:
         qty_col = raw_df.columns[qty_idx]
-    if text_source_col not in raw_df.columns:
-        text_source_col = raw_df.columns[name_idx]
+    if skuid_col not in raw_df.columns:
+        skuid_col = raw_df.columns[name_idx]
 else:
+    type_col = raw_df.columns[name_idx]
+    brand_col = raw_df.columns[name_idx]
     var_col = raw_df.columns[var_idx]
     qty_col = raw_df.columns[qty_idx]
-    text_source_col = raw_df.columns[name_idx]
+    skuid_col = raw_df.columns[name_idx]
 
-c1, c2, c3 = st.columns([1, 1, 1])
+c1, c2 = st.columns([1, 1])
 with c1:
+    type_col = st.selectbox(
+        "Kolom Type",
+        options=list(raw_df.columns),
+        index=list(raw_df.columns).index(type_col),
+        key="sel_type",
+        help="Pilih kolom untuk Type"
+    )
+with c2:
+    brand_col = st.selectbox(
+        "Kolom Brand/Merk",
+        options=list(raw_df.columns),
+        index=list(raw_df.columns).index(brand_col),
+        key="sel_brand",
+        help="Pilih kolom untuk Brand/Merk"
+    )
+
+c3, c4 = st.columns([1, 1])
+with c3:
     var_col = st.selectbox(
-        "Source for 'Variation'",
+        "Kolom Variation/Kode Sarung",
         options=list(raw_df.columns),
         index=list(raw_df.columns).index(var_col),
         key="sel_var",
-        help="Select which column contains variation data"
+        help="Pilih kolom untuk Variation/Kode Sarung"
     )
-with c2:
-    qty_col = st.selectbox(
-        "Source for 'Quantity' (not used in output)",
+with c4:
+    skuid_col = st.selectbox(
+        "Kolom SkuID",
         options=list(raw_df.columns),
-        index=list(raw_df.columns).index(qty_col),
-        key="sel_qty",
-        help="Select which column contains quantity data"
-    )
-with c3:
-    text_source_col = st.selectbox(
-        "Source for 'SkuID'",
-        options=list(raw_df.columns),
-        index=list(raw_df.columns).index(text_source_col),
-        key="sel_text",
-        help="Select which column contains SKU/product data"
+        index=list(raw_df.columns).index(skuid_col),
+        key="sel_skuid",
+        help="Pilih kolom untuk SkuID"
     )
 
 st.session_state["selected_columns"] = {
     "file_hash": file_hash,
+    "type_col": type_col,
+    "brand_col": brand_col,
     "var_col": var_col,
     "qty_col": qty_col,
-    "text_col": text_source_col
+    "skuid_col": skuid_col
 }
 
 # ============================================================================
@@ -699,30 +722,32 @@ with col_filter2:
 # BUILD BASE & FILTER
 # ============================================================================
 
-base = build_base_df(raw_df, var_col, qty_col, text_source_col)
+base = build_base_df(raw_df, type_col, brand_col, var_col, qty_col, skuid_col)
 
+# Apply keyword filter if specified
 if keywords:
-    base["Type"] = categorize_by_keywords(base["SkuID"], keywords)
-    filtered = base[base["Type"] != ""].copy()
+    # Filter by Type column containing any of the keywords
+    mask_keywords = base["Type"].astype(str).str.lower().str.contains(
+        '|'.join([re.escape(k.lower()) for k in keywords]),
+        na=False,
+        regex=True
+    )
+    filtered = base[mask_keywords].copy()
 else:
-    base["Type"] = ""
     filtered = base.copy()
-
-filtered["Brand"] = [
-    infer_brand(t, k) for t, k in zip(filtered["SkuID"], filtered["Type"])
-]
 
 # Apply text search
 if text_search:
     search_lower = text_search.lower()
     mask = (
         filtered["Variation"].astype(str).str.lower().str.contains(search_lower, na=False) |
-        filtered["SkuID"].astype(str).str.lower().str.contains(search_lower, na=False)
+        filtered["SkuID"].astype(str).str.lower().str.contains(search_lower, na=False) |
+        filtered["Type"].astype(str).str.lower().str.contains(search_lower, na=False)
     )
     filtered = filtered[mask].copy()
 
+# Sort by Type and OriginalIndex
 if keywords:
-    filtered["Type"] = pd.Categorical(filtered["Type"], categories=keywords, ordered=True)
     filtered = filtered.sort_values(["Type", "OriginalIndex"]).reset_index(drop=True)
 else:
     filtered = filtered.sort_values(["OriginalIndex"]).reset_index(drop=True)
@@ -793,26 +818,46 @@ with tab1:
     else:
         with st.form("form_pending"):
             max_rows = min(len(pending_df), 5000)
-            # FIXED ORDER: Select, Type, Brand, Variation, SkuID (already named correctly)
-            view_pending = pending_df[["Type", "Brand", "Variation", "SkuID", "OriginalIndex"]].head(max_rows).copy()
+            # Output order: Select, Quantity, Type, Variation, SkuID
+            view_pending = pending_df[["Quantity", "Type", "Variation", "SkuID", "OriginalIndex"]].head(max_rows).copy()
             view_pending.insert(0, "Select", False)
 
-            edited_pending = st.data_editor(
-                view_pending.drop(columns=["OriginalIndex"]),
-                use_container_width=True,
-                height=400,
-                num_rows="fixed",
-                hide_index=True,
-                column_config={
-                    "Select": st.column_config.CheckboxColumn("Select", width="small"),
-                    "Type": st.column_config.TextColumn("Type", width="small"),
-                    "Brand": st.column_config.TextColumn("Brand", width="small"),
-                    "Variation": st.column_config.TextColumn("Variation", width="medium"),
-                    "SkuID": st.column_config.TextColumn("SkuID", width="medium"),
-                },
-                disabled=["Type", "Brand", "Variation", "SkuID"],
-                key="editor_pending"
-            )
+            if mobile_mode:
+                # Mobile: compact columns, no horizontal scroll
+                edited_pending = st.data_editor(
+                    view_pending.drop(columns=["OriginalIndex"]),
+                    use_container_width=True,
+                    height=400,
+                    num_rows="fixed",
+                    hide_index=True,
+                    column_config={
+                        "Select": st.column_config.CheckboxColumn("Select", width="small"),
+                        "Quantity": st.column_config.NumberColumn("Qty", width="small"),
+                        "Type": st.column_config.TextColumn("Type", width="small"),
+                        "Variation": st.column_config.TextColumn("Variation", width="medium"),
+                        "SkuID": st.column_config.TextColumn("SkuID", width="small"),
+                    },
+                    disabled=["Quantity", "Type", "Variation", "SkuID"],
+                    key="editor_pending"
+                )
+            else:
+                # Desktop: wider columns
+                edited_pending = st.data_editor(
+                    view_pending.drop(columns=["OriginalIndex"]),
+                    use_container_width=True,
+                    height=400,
+                    num_rows="fixed",
+                    hide_index=True,
+                    column_config={
+                        "Select": st.column_config.CheckboxColumn("Select", width="small"),
+                        "Quantity": st.column_config.NumberColumn("Quantity", width="small"),
+                        "Type": st.column_config.TextColumn("Type", width="medium"),
+                        "Variation": st.column_config.TextColumn("Variation", width="large"),
+                        "SkuID": st.column_config.TextColumn("SkuID", width="large"),
+                    },
+                    disabled=["Quantity", "Type", "Variation", "SkuID"],
+                    key="editor_pending"
+                )
 
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -850,25 +895,45 @@ with tab2:
     else:
         with st.form("form_processed"):
             max_rows = min(len(processed_df), 5000)
-            view_processed = processed_df[["Type", "Brand", "Variation", "SkuID", "OriginalIndex"]].head(max_rows).copy()
+            view_processed = processed_df[["Quantity", "Type", "Variation", "SkuID", "OriginalIndex"]].head(max_rows).copy()
             view_processed.insert(0, "Select", False)
 
-            edited_processed = st.data_editor(
-                view_processed.drop(columns=["OriginalIndex"]),
-                use_container_width=True,
-                height=400,
-                num_rows="fixed",
-                hide_index=True,
-                column_config={
-                    "Select": st.column_config.CheckboxColumn("Select", width="small"),
-                    "Type": st.column_config.TextColumn("Type", width="small"),
-                    "Brand": st.column_config.TextColumn("Brand", width="small"),
-                    "Variation": st.column_config.TextColumn("Variation", width="medium"),
-                    "SkuID": st.column_config.TextColumn("SkuID", width="medium"),
-                },
-                disabled=["Type", "Brand", "Variation", "SkuID"],
-                key="editor_processed"
-            )
+            if mobile_mode:
+                # Mobile: compact columns
+                edited_processed = st.data_editor(
+                    view_processed.drop(columns=["OriginalIndex"]),
+                    use_container_width=True,
+                    height=400,
+                    num_rows="fixed",
+                    hide_index=True,
+                    column_config={
+                        "Select": st.column_config.CheckboxColumn("Select", width="small"),
+                        "Quantity": st.column_config.NumberColumn("Qty", width="small"),
+                        "Type": st.column_config.TextColumn("Type", width="small"),
+                        "Variation": st.column_config.TextColumn("Variation", width="medium"),
+                        "SkuID": st.column_config.TextColumn("SkuID", width="small"),
+                    },
+                    disabled=["Quantity", "Type", "Variation", "SkuID"],
+                    key="editor_processed"
+                )
+            else:
+                # Desktop: wider columns
+                edited_processed = st.data_editor(
+                    view_processed.drop(columns=["OriginalIndex"]),
+                    use_container_width=True,
+                    height=400,
+                    num_rows="fixed",
+                    hide_index=True,
+                    column_config={
+                        "Select": st.column_config.CheckboxColumn("Select", width="small"),
+                        "Quantity": st.column_config.NumberColumn("Quantity", width="small"),
+                        "Type": st.column_config.TextColumn("Type", width="medium"),
+                        "Variation": st.column_config.TextColumn("Variation", width="large"),
+                        "SkuID": st.column_config.TextColumn("SkuID", width="large"),
+                    },
+                    disabled=["Quantity", "Type", "Variation", "SkuID"],
+                    key="editor_processed"
+                )
 
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -907,25 +972,45 @@ with tab3:
     else:
         with st.form("form_confirmed"):
             max_rows = min(len(confirmed_df), 5000)
-            view_confirmed = confirmed_df[["Type", "Brand", "Variation", "SkuID", "OriginalIndex"]].head(max_rows).copy()
+            view_confirmed = confirmed_df[["Quantity", "Type", "Variation", "SkuID", "OriginalIndex"]].head(max_rows).copy()
             view_confirmed.insert(0, "Select", False)
 
-            edited_confirmed = st.data_editor(
-                view_confirmed.drop(columns=["OriginalIndex"]),
-                use_container_width=True,
-                height=400,
-                num_rows="fixed",
-                hide_index=True,
-                column_config={
-                    "Select": st.column_config.CheckboxColumn("Select", width="small"),
-                    "Type": st.column_config.TextColumn("Type", width="small"),
-                    "Brand": st.column_config.TextColumn("Brand", width="small"),
-                    "Variation": st.column_config.TextColumn("Variation", width="medium"),
-                    "SkuID": st.column_config.TextColumn("SkuID", width="medium"),
-                },
-                disabled=["Type", "Brand", "Variation", "SkuID"],
-                key="editor_confirmed"
-            )
+            if mobile_mode:
+                # Mobile: compact columns
+                edited_confirmed = st.data_editor(
+                    view_confirmed.drop(columns=["OriginalIndex"]),
+                    use_container_width=True,
+                    height=400,
+                    num_rows="fixed",
+                    hide_index=True,
+                    column_config={
+                        "Select": st.column_config.CheckboxColumn("Select", width="small"),
+                        "Quantity": st.column_config.NumberColumn("Qty", width="small"),
+                        "Type": st.column_config.TextColumn("Type", width="small"),
+                        "Variation": st.column_config.TextColumn("Variation", width="medium"),
+                        "SkuID": st.column_config.TextColumn("SkuID", width="small"),
+                    },
+                    disabled=["Quantity", "Type", "Variation", "SkuID"],
+                    key="editor_confirmed"
+                )
+            else:
+                # Desktop: wider columns
+                edited_confirmed = st.data_editor(
+                    view_confirmed.drop(columns=["OriginalIndex"]),
+                    use_container_width=True,
+                    height=400,
+                    num_rows="fixed",
+                    hide_index=True,
+                    column_config={
+                        "Select": st.column_config.CheckboxColumn("Select", width="small"),
+                        "Quantity": st.column_config.NumberColumn("Quantity", width="small"),
+                        "Type": st.column_config.TextColumn("Type", width="medium"),
+                        "Variation": st.column_config.TextColumn("Variation", width="large"),
+                        "SkuID": st.column_config.TextColumn("SkuID", width="large"),
+                    },
+                    disabled=["Quantity", "Type", "Variation", "SkuID"],
+                    key="editor_confirmed"
+                )
 
             col1, col2 = st.columns(2)
             with col1:
