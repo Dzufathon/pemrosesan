@@ -600,6 +600,7 @@ with st.expander("View columns"):
 # ============================================================================
 
 st.markdown("### Column Settings")
+st.caption("Map your file columns to output format (Type | Brand | Variation | SkuID)")
 
 var_idx = find_best_match(raw_df, VAR_SYNS, "text") or 0
 qty_idx = find_best_match(raw_df, QTY_SYNS, "num") or (0 if len(raw_df.columns) == 1 else 1)
@@ -624,24 +625,27 @@ else:
 c1, c2, c3 = st.columns([1, 1, 1])
 with c1:
     var_col = st.selectbox(
-        "Variation Column",
+        "Source for 'Variation'",
         options=list(raw_df.columns),
         index=list(raw_df.columns).index(var_col),
-        key="sel_var"
+        key="sel_var",
+        help="Select which column contains variation data"
     )
 with c2:
     qty_col = st.selectbox(
-        "Quantity Column",
+        "Source for 'Quantity' (not used in output)",
         options=list(raw_df.columns),
         index=list(raw_df.columns).index(qty_col),
-        key="sel_qty"
+        key="sel_qty",
+        help="Select which column contains quantity data"
     )
 with c3:
     text_source_col = st.selectbox(
-        "SKU/Text Source Column",
+        "Source for 'SkuID'",
         options=list(raw_df.columns),
         index=list(raw_df.columns).index(text_source_col),
-        key="sel_text"
+        key="sel_text",
+        help="Select which column contains SKU/product data"
     )
 
 st.session_state["selected_columns"] = {
@@ -783,7 +787,7 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # ============================================================================
-# TAB 1: PENDING (REORDERED COLUMNS)
+# TAB 1: PENDING (FIXED COLUMN HEADERS)
 # ============================================================================
 
 with tab1:
@@ -794,8 +798,14 @@ with tab1:
     else:
         with st.form("form_pending"):
             max_rows = min(len(pending_df), 5000)
-            # NEW COLUMN ORDER: Select, Variation, Quantity, Type, SkuID
-            view_pending = pending_df[[var_col, qty_col, "Type", "TextSource", "OriginalIndex"]].head(max_rows).copy()
+            # FIXED ORDER: Select, Type, Brand, Variation, SkuID
+            # Rename kolom untuk display dengan nama FIXED
+            view_pending = pending_df[["Type", "BrandGuess", var_col, "TextSource", "OriginalIndex"]].head(max_rows).copy()
+            view_pending = view_pending.rename(columns={
+                "BrandGuess": "Brand",
+                var_col: "Variation",
+                "TextSource": "SkuID"
+            })
             view_pending.insert(0, "Select", False)
 
             edited_pending = st.data_editor(
@@ -806,12 +816,12 @@ with tab1:
                 hide_index=True,
                 column_config={
                     "Select": st.column_config.CheckboxColumn("Select", width="small"),
-                    var_col: st.column_config.TextColumn("Variation", width="medium"),
-                    qty_col: st.column_config.NumberColumn("Quantity", width="small"),
                     "Type": st.column_config.TextColumn("Type", width="small"),
-                    "TextSource": st.column_config.TextColumn("SkuID", width="large"),
+                    "Brand": st.column_config.TextColumn("Brand", width="small"),
+                    "Variation": st.column_config.TextColumn("Variation", width="medium"),
+                    "SkuID": st.column_config.TextColumn("SkuID", width="medium"),
                 },
-                disabled=[var_col, qty_col, "Type", "TextSource"],
+                disabled=["Type", "Brand", "Variation", "SkuID"],
                 key="editor_pending"
             )
 
@@ -840,7 +850,7 @@ with tab1:
                     st.rerun()
 
 # ============================================================================
-# TAB 2: PROCESSED (REORDERED COLUMNS)
+# TAB 2: PROCESSED (FIXED COLUMN HEADERS)
 # ============================================================================
 
 with tab2:
@@ -851,7 +861,12 @@ with tab2:
     else:
         with st.form("form_processed"):
             max_rows = min(len(processed_df), 5000)
-            view_processed = processed_df[[var_col, qty_col, "Type", "TextSource", "OriginalIndex"]].head(max_rows).copy()
+            view_processed = processed_df[["Type", "BrandGuess", var_col, "TextSource", "OriginalIndex"]].head(max_rows).copy()
+            view_processed = view_processed.rename(columns={
+                "BrandGuess": "Brand",
+                var_col: "Variation",
+                "TextSource": "SkuID"
+            })
             view_processed.insert(0, "Select", False)
 
             edited_processed = st.data_editor(
@@ -862,12 +877,12 @@ with tab2:
                 hide_index=True,
                 column_config={
                     "Select": st.column_config.CheckboxColumn("Select", width="small"),
-                    var_col: st.column_config.TextColumn("Variation", width="medium"),
-                    qty_col: st.column_config.NumberColumn("Quantity", width="small"),
                     "Type": st.column_config.TextColumn("Type", width="small"),
-                    "TextSource": st.column_config.TextColumn("SkuID", width="large"),
+                    "Brand": st.column_config.TextColumn("Brand", width="small"),
+                    "Variation": st.column_config.TextColumn("Variation", width="medium"),
+                    "SkuID": st.column_config.TextColumn("SkuID", width="medium"),
                 },
-                disabled=[var_col, qty_col, "Type", "TextSource"],
+                disabled=["Type", "Brand", "Variation", "SkuID"],
                 key="editor_processed"
             )
 
@@ -897,7 +912,7 @@ with tab2:
                     st.rerun()
 
 # ============================================================================
-# TAB 3: CONFIRMED (REORDERED COLUMNS)
+# TAB 3: CONFIRMED (FIXED COLUMN HEADERS)
 # ============================================================================
 
 with tab3:
@@ -908,7 +923,12 @@ with tab3:
     else:
         with st.form("form_confirmed"):
             max_rows = min(len(confirmed_df), 5000)
-            view_confirmed = confirmed_df[[var_col, qty_col, "Type", "TextSource", "OriginalIndex"]].head(max_rows).copy()
+            view_confirmed = confirmed_df[["Type", "BrandGuess", var_col, "TextSource", "OriginalIndex"]].head(max_rows).copy()
+            view_confirmed = view_confirmed.rename(columns={
+                "BrandGuess": "Brand",
+                var_col: "Variation",
+                "TextSource": "SkuID"
+            })
             view_confirmed.insert(0, "Select", False)
 
             edited_confirmed = st.data_editor(
@@ -919,12 +939,12 @@ with tab3:
                 hide_index=True,
                 column_config={
                     "Select": st.column_config.CheckboxColumn("Select", width="small"),
-                    var_col: st.column_config.TextColumn("Variation", width="medium"),
-                    qty_col: st.column_config.NumberColumn("Quantity", width="small"),
                     "Type": st.column_config.TextColumn("Type", width="small"),
-                    "TextSource": st.column_config.TextColumn("SkuID", width="large"),
+                    "Brand": st.column_config.TextColumn("Brand", width="small"),
+                    "Variation": st.column_config.TextColumn("Variation", width="medium"),
+                    "SkuID": st.column_config.TextColumn("SkuID", width="medium"),
                 },
-                disabled=[var_col, qty_col, "Type", "TextSource"],
+                disabled=["Type", "Brand", "Variation", "SkuID"],
                 key="editor_confirmed"
             )
 
