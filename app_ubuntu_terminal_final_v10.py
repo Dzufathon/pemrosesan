@@ -1,17 +1,17 @@
 # app_ubuntu_terminal_final_v10.py
 # Jalankan: streamlit run app_ubuntu_terminal_final_v10.py --server.port 8501 --server.address 0.0.0.0
-# Python 3.14 kompatibel - Multi-device sync dengan auto-load file
+# Python 3.14 kompatibel - Multi-device sync dengan mobile detection
 
 import io
 import re
 import json
 import hashlib
 import os
-import base64
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
+from streamlit.web.server.websocket_headers import _get_websocket_headers
 
 # ============================================================================
 # CONFIG & STYLING
@@ -64,8 +64,29 @@ div[data-testid="stForm"] {
 st.markdown(CSS, unsafe_allow_html=True)
 
 # ============================================================================
+# MOBILE DETECTION
+# ============================================================================
+
+def is_mobile():
+    """Detect jika akses dari mobile device"""
+    try:
+        headers = _get_websocket_headers()
+        if headers:
+            user_agent = headers.get("User-Agent", "").lower()
+            mobile_keywords = ["mobile", "android", "iphone", "ipad", "tablet", "phone"]
+            return any(keyword in user_agent for keyword in mobile_keywords)
+    except:
+        pass
+    return False
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
+def make_code(n=4):
+    """Generate random lowercase code"""
+    import secrets, string
+    return ''.join(secrets.choice(string.ascii_lowercase) for _ in range(n))
 
 def file_fingerprint(b: bytes) -> str:
     """Generate SHA1 hash untuk file tracking"""
@@ -250,14 +271,20 @@ if "loaded_file_bytes" not in st.session_state:
 if "loaded_file_name" not in st.session_state:
     st.session_state["loaded_file_name"] = None
 
+if "text_search" not in st.session_state:
+    st.session_state["text_search"] = ""
+
 # ============================================================================
 # LOGIN SCREEN
 # ============================================================================
 
 if not st.session_state["logged_in"]:
+    mobile_mode = is_mobile()
+    device_type = "📱 Mobile" if mobile_mode else "💻 Desktop/Server"
+
     st.markdown("<div style='text-align: center; margin-top: 2rem;'>", unsafe_allow_html=True)
     st.markdown("# 🔐 Login Session")
-    st.markdown("### Program Pesanan 3 Tahap")
+    st.markdown(f"### Program Pesanan 3 Tahap • {device_type}")
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div class='login-card'>", unsafe_allow_html=True)
@@ -265,13 +292,34 @@ if not st.session_state["logged_in"]:
     st.markdown("**Masukkan kode sesi (4 huruf kecil)**")
     st.caption("PC/Laptop dan HP harus pakai kode yang sama untuk sync data")
 
-    input_code = st.text_input(
-        "Kode Session",
-        max_chars=4,
-        placeholder="contoh: abcd",
-        help="Masukkan 4 huruf kecil (a-z)",
-        label_visibility="collapsed"
-    ).lower()
+    # Generate button HANYA untuk desktop/server
+    if not mobile_mode:
+        col_input, col_gen = st.columns([3, 1])
+        with col_input:
+            input_code = st.text_input(
+                "Kode Session",
+                max_chars=4,
+                placeholder="contoh: abcd",
+                help="Masukkan 4 huruf kecil (a-z)",
+                label_visibility="collapsed"
+            ).lower()
+        with col_gen:
+            st.write("")
+            if st.button("🎲 Generate", use_container_width=True):
+                new_code = make_code(4)
+                st.info(f"**Kode baru:** {new_code}")
+                st.caption("Salin kode ini untuk login")
+                st.stop()
+    else:
+        # Mobile: no generate button
+        input_code = st.text_input(
+            "Kode Session",
+            max_chars=4,
+            placeholder="contoh: abcd",
+            help="Masukkan 4 huruf kecil (a-z)",
+            label_visibility="collapsed"
+        ).lower()
+        st.caption("⚠️ Generate kode hanya tersedia di Server/PC")
 
     if st.button("✅ Login / Buat Session Baru", type="primary", use_container_width=True):
         if len(input_code) == 4 and input_code.isalpha() and input_code.islower():
@@ -311,17 +359,17 @@ if not st.session_state["logged_in"]:
         st.markdown("""
         **Di PC (Server):**
         1. Jalankan: `streamlit run app.py --server.address 0.0.0.0`
-        2. Login dengan kode (misal: `abcd`)
-        3. Upload file pesanan
-        4. Proses data
+        2. Klik **🎲 Generate** untuk buat kode
+        3. Login dengan kode tersebut
+        4. Upload file pesanan & proses data
         """)
     with col2:
         st.markdown("""
         **Di HP (Client):**
-        1. Sambung Wi-Fi yang sama
+        1. Sambung Wi-Fi yang sama dengan PC
         2. Buka: `http://{IP-PC}:8501`
-        3. Login dengan kode **yang sama** (`abcd`)
-        4. Data otomatis sync! ✨
+        3. Input kode **yang sama** dari PC
+        4. File & data otomatis sync! ✨
         """)
 
     st.stop()
@@ -331,11 +379,13 @@ if not st.session_state["logged_in"]:
 # ============================================================================
 
 session_code = st.session_state["session_code"]
+mobile_mode = is_mobile()
+device_icon = "📱" if mobile_mode else "💻"
 
 col_header1, col_header2 = st.columns([6, 1])
 with col_header1:
     st.markdown(f"""
-    ### nariyahsore:~$ session **`{session_code}`**
+    ### {device_icon} nariyahsore:~$ session **`{session_code}`**
     **Program Pesanan 3 Tahap (v10)** • Auto-save setiap perubahan
     """)
 with col_header2:
@@ -382,7 +432,7 @@ except Exception as e:
     st.error(f"❌ Gagal membaca file: {e}")
     st.stop()
 
-if uploaded:  # Hanya tampilkan jika baru upload
+if uploaded:
     st.success(f"✅ File dimuat: **{file_name}** • {len(raw_df)} baris, {len(raw_df.columns)} kolom")
 
 with st.expander("🧭 Lihat kolom file"):
@@ -445,29 +495,43 @@ st.session_state["selected_columns"] = {
 }
 
 # ============================================================================
-# KEYWORD FILTER
+# KEYWORD FILTER & TEXT SEARCH
 # ============================================================================
 
-st.markdown("### 🔎 Filter Tipe Produk")
+st.markdown("### 🔎 Filter & Pencarian")
 
-col_kw1, col_kw2 = st.columns([4, 1])
-with col_kw1:
+col_filter1, col_filter2 = st.columns([1, 1])
+
+with col_filter1:
+    st.markdown("**Filter Tipe Produk**")
     kw_input = st.text_input(
-        "Kata kunci filter",
+        "Kata kunci tipe",
         value=", ".join(st.session_state["keywords"]) if st.session_state["keywords"] else "ssl, stk",
         help="Pisahkan dengan koma/spasi. Contoh: ssl, stk, doby, songket",
-        label_visibility="collapsed"
+        label_visibility="collapsed",
+        key="kw_filter"
     )
-with col_kw2:
-    st.write("")
-    st.write("")
-    st.caption(f"🏷️ {len(st.session_state['keywords'])} aktif" if st.session_state["keywords"] else "Semua ditampilkan")
+    cur_keywords = [k.strip() for k in re.split(r"[\s,]+", kw_input) if k.strip()]
+    if cur_keywords != st.session_state["keywords"]:
+        st.session_state["keywords"] = cur_keywords
+    keywords = st.session_state["keywords"]
+    st.caption(f"🏷️ {len(keywords)} tipe aktif" if keywords else "Semua tipe ditampilkan")
 
-cur_keywords = [k.strip() for k in re.split(r"[\s,]+", kw_input) if k.strip()]
-if cur_keywords != st.session_state["keywords"]:
-    st.session_state["keywords"] = cur_keywords
-
-keywords = st.session_state["keywords"]
+with col_filter2:
+    st.markdown("**Pencarian Kode/Variasi**")
+    text_search = st.text_input(
+        "Cari kode/variasi",
+        value=st.session_state.get("text_search", ""),
+        help="Cari berdasarkan kode produk atau nama variasi",
+        placeholder="Contoh: A123, merah, XL",
+        label_visibility="collapsed",
+        key="text_search_input"
+    )
+    st.session_state["text_search"] = text_search
+    if text_search:
+        st.caption(f"🔍 Mencari: '{text_search}'")
+    else:
+        st.caption("💡 Ketik untuk mencari kode/variasi")
 
 # ============================================================================
 # BUILD BASE & FILTER
@@ -485,6 +549,15 @@ else:
 filtered["BrandGuess"] = [
     infer_brand(t, k) for t, k in zip(filtered["TextSource"], filtered["Type"])
 ]
+
+# Apply text search
+if text_search:
+    search_lower = text_search.lower()
+    mask = (
+        filtered["VariationData"].astype(str).str.lower().str.contains(search_lower, na=False) |
+        filtered["TextSource"].astype(str).str.lower().str.contains(search_lower, na=False)
+    )
+    filtered = filtered[mask].copy()
 
 if keywords:
     filtered["Type"] = pd.Categorical(filtered["Type"], categories=keywords, ordered=True)
@@ -519,22 +592,28 @@ confirmed_df = filtered[
 ].copy()
 
 # ============================================================================
-# AUTO-SAVE HELPER
+# AUTO-SAVE HELPER (IMPROVED)
 # ============================================================================
 
 def auto_save():
-    """Auto-save session"""
+    """Auto-save session dengan force write"""
     state_data = {
         "saved_at": datetime.utcnow().isoformat() + "Z",
         "app_version": "v10",
         "file_name": file_name,
         "file_hash": file_hash,
         "keywords": keywords,
-        "processed_ids": sorted(list(processed_ids)),
-        "confirmed_ids": sorted(list(confirmed_ids)),
+        "processed_ids": sorted(list(st.session_state["processed_ids"])),
+        "confirmed_ids": sorted(list(st.session_state["confirmed_ids"])),
         "selected_columns": st.session_state["selected_columns"]
     }
     save_session(session_code, state_data, raw_bytes, file_name)
+
+    # Force sync state
+    processed_ids.clear()
+    processed_ids.update(st.session_state["processed_ids"])
+    confirmed_ids.clear()
+    confirmed_ids.update(st.session_state["confirmed_ids"])
 
 # ============================================================================
 # TABS FOR 3 CATEGORIES
@@ -562,7 +641,7 @@ with tab1:
         with st.form("form_pending"):
             max_rows = min(len(pending_df), 5000)
             view_pending = pending_df[["Type", "BrandGuess", var_col, qty_col, "TextSource", "OriginalIndex"]].head(max_rows).copy()
-            view_pending["✓"] = False
+            view_pending.insert(0, "✓", False)  # Insert checkbox di KIRI
 
             edited_pending = st.data_editor(
                 view_pending.drop(columns=["OriginalIndex"]),
@@ -593,8 +672,7 @@ with tab1:
                 mask = edited_pending["✓"] if btn_to_processed else pd.Series([True] * len(edited_pending))
                 selected_ids = view_pending.loc[mask.to_numpy(), "OriginalIndex"].tolist()
                 if selected_ids:
-                    processed_ids.update(selected_ids)
-                    st.session_state["processed_ids"] = processed_ids
+                    st.session_state["processed_ids"].update(selected_ids)
                     auto_save()
                     st.rerun()
 
@@ -602,8 +680,7 @@ with tab1:
                 mask = edited_pending["✓"]
                 selected_ids = view_pending.loc[mask.to_numpy(), "OriginalIndex"].tolist()
                 if selected_ids:
-                    confirmed_ids.update(selected_ids)
-                    st.session_state["confirmed_ids"] = confirmed_ids
+                    st.session_state["confirmed_ids"].update(selected_ids)
                     auto_save()
                     st.rerun()
 
@@ -620,7 +697,7 @@ with tab2:
         with st.form("form_processed"):
             max_rows = min(len(processed_df), 5000)
             view_processed = processed_df[["Type", "BrandGuess", var_col, qty_col, "TextSource", "OriginalIndex"]].head(max_rows).copy()
-            view_processed["✓"] = False
+            view_processed.insert(0, "✓", False)  # Insert checkbox di KIRI
 
             edited_processed = st.data_editor(
                 view_processed.drop(columns=["OriginalIndex"]),
@@ -651,8 +728,7 @@ with tab2:
                 mask = edited_processed["✓"]
                 selected_ids = view_processed.loc[mask.to_numpy(), "OriginalIndex"].tolist()
                 if selected_ids:
-                    processed_ids.difference_update(selected_ids)
-                    st.session_state["processed_ids"] = processed_ids
+                    st.session_state["processed_ids"].difference_update(selected_ids)
                     auto_save()
                     st.rerun()
 
@@ -660,10 +736,8 @@ with tab2:
                 mask = edited_processed["✓"] if btn_proc_to_confirmed else pd.Series([True] * len(edited_processed))
                 selected_ids = view_processed.loc[mask.to_numpy(), "OriginalIndex"].tolist()
                 if selected_ids:
-                    processed_ids.difference_update(selected_ids)
-                    confirmed_ids.update(selected_ids)
-                    st.session_state["processed_ids"] = processed_ids
-                    st.session_state["confirmed_ids"] = confirmed_ids
+                    st.session_state["processed_ids"].difference_update(selected_ids)
+                    st.session_state["confirmed_ids"].update(selected_ids)
                     auto_save()
                     st.rerun()
 
@@ -680,7 +754,7 @@ with tab3:
         with st.form("form_confirmed"):
             max_rows = min(len(confirmed_df), 5000)
             view_confirmed = confirmed_df[["Type", "BrandGuess", var_col, qty_col, "TextSource", "OriginalIndex"]].head(max_rows).copy()
-            view_confirmed["✓"] = False
+            view_confirmed.insert(0, "✓", False)  # Insert checkbox di KIRI
 
             edited_confirmed = st.data_editor(
                 view_confirmed.drop(columns=["OriginalIndex"]),
@@ -709,10 +783,8 @@ with tab3:
                 mask = edited_confirmed["✓"] if btn_back_to_processed else pd.Series([True] * len(edited_confirmed))
                 selected_ids = view_confirmed.loc[mask.to_numpy(), "OriginalIndex"].tolist()
                 if selected_ids:
-                    confirmed_ids.difference_update(selected_ids)
-                    processed_ids.update(selected_ids)
-                    st.session_state["confirmed_ids"] = confirmed_ids
-                    st.session_state["processed_ids"] = processed_ids
+                    st.session_state["confirmed_ids"].difference_update(selected_ids)
+                    st.session_state["processed_ids"].update(selected_ids)
                     auto_save()
                     st.rerun()
 
@@ -769,4 +841,4 @@ with col4:
 # ============================================================================
 
 st.markdown("---")
-st.caption(f"💾 Auto-save aktif • Session: **{session_code}** • File: {file_name} • {len(filtered)} items (setelah filter)")
+st.caption(f"💾 Auto-save aktif • {device_icon} Session: **{session_code}** • File: {file_name} • {len(filtered)} items (setelah filter)")
