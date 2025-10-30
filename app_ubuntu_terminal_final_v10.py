@@ -298,18 +298,18 @@ def find_best_match(df, synonyms, fallback_type="text"):
         return scores[0][1] if scores else (0 if len(df.columns) == 1 else 1)
 
 def build_base_df(df, var_col, qty_col, text_col):
-    """Build base dataframe with standard columns"""
+    """Build base dataframe with FIXED column names"""
     out = pd.DataFrame({
-        "VariationData": df[var_col].astype(str).str.strip(),
-        "QtyData": pd.to_numeric(df[qty_col], errors="coerce"),
-        "TextSource": df[text_col].astype(str),
+        "Variation": df[var_col].astype(str).str.strip(),
+        "Quantity": pd.to_numeric(df[qty_col], errors="coerce"),
+        "SkuID": df[text_col].astype(str),
         "OriginalIndex": range(len(df))
     })
 
-    if not out["QtyData"].isna().all():
-        out["QtyData"] = out["QtyData"].fillna(0)
-        if (out["QtyData"] % 1 == 0).all():
-            out["QtyData"] = out["QtyData"].astype(int)
+    if not out["Quantity"].isna().all():
+        out["Quantity"] = out["Quantity"].fillna(0)
+        if (out["Quantity"] % 1 == 0).all():
+            out["Quantity"] = out["Quantity"].astype(int)
 
     return out
 
@@ -702,22 +702,22 @@ with col_filter2:
 base = build_base_df(raw_df, var_col, qty_col, text_source_col)
 
 if keywords:
-    base["Type"] = categorize_by_keywords(base["TextSource"], keywords)
+    base["Type"] = categorize_by_keywords(base["SkuID"], keywords)
     filtered = base[base["Type"] != ""].copy()
 else:
     base["Type"] = ""
     filtered = base.copy()
 
-filtered["BrandGuess"] = [
-    infer_brand(t, k) for t, k in zip(filtered["TextSource"], filtered["Type"])
+filtered["Brand"] = [
+    infer_brand(t, k) for t, k in zip(filtered["SkuID"], filtered["Type"])
 ]
 
 # Apply text search
 if text_search:
     search_lower = text_search.lower()
     mask = (
-        filtered["VariationData"].astype(str).str.lower().str.contains(search_lower, na=False) |
-        filtered["TextSource"].astype(str).str.lower().str.contains(search_lower, na=False)
+        filtered["Variation"].astype(str).str.lower().str.contains(search_lower, na=False) |
+        filtered["SkuID"].astype(str).str.lower().str.contains(search_lower, na=False)
     )
     filtered = filtered[mask].copy()
 
@@ -726,11 +726,6 @@ if keywords:
     filtered = filtered.sort_values(["Type", "OriginalIndex"]).reset_index(drop=True)
 else:
     filtered = filtered.sort_values(["OriginalIndex"]).reset_index(drop=True)
-
-filtered = filtered.rename(columns={
-    "VariationData": var_col,
-    "QtyData": qty_col
-})
 
 # ============================================================================
 # CATEGORIZE DATA
@@ -798,14 +793,8 @@ with tab1:
     else:
         with st.form("form_pending"):
             max_rows = min(len(pending_df), 5000)
-            # FIXED ORDER: Select, Type, Brand, Variation, SkuID
-            # Rename kolom untuk display dengan nama FIXED
-            view_pending = pending_df[["Type", "BrandGuess", var_col, "TextSource", "OriginalIndex"]].head(max_rows).copy()
-            view_pending = view_pending.rename(columns={
-                "BrandGuess": "Brand",
-                var_col: "Variation",
-                "TextSource": "SkuID"
-            })
+            # FIXED ORDER: Select, Type, Brand, Variation, SkuID (already named correctly)
+            view_pending = pending_df[["Type", "Brand", "Variation", "SkuID", "OriginalIndex"]].head(max_rows).copy()
             view_pending.insert(0, "Select", False)
 
             edited_pending = st.data_editor(
@@ -861,12 +850,7 @@ with tab2:
     else:
         with st.form("form_processed"):
             max_rows = min(len(processed_df), 5000)
-            view_processed = processed_df[["Type", "BrandGuess", var_col, "TextSource", "OriginalIndex"]].head(max_rows).copy()
-            view_processed = view_processed.rename(columns={
-                "BrandGuess": "Brand",
-                var_col: "Variation",
-                "TextSource": "SkuID"
-            })
+            view_processed = processed_df[["Type", "Brand", "Variation", "SkuID", "OriginalIndex"]].head(max_rows).copy()
             view_processed.insert(0, "Select", False)
 
             edited_processed = st.data_editor(
@@ -923,12 +907,7 @@ with tab3:
     else:
         with st.form("form_confirmed"):
             max_rows = min(len(confirmed_df), 5000)
-            view_confirmed = confirmed_df[["Type", "BrandGuess", var_col, "TextSource", "OriginalIndex"]].head(max_rows).copy()
-            view_confirmed = view_confirmed.rename(columns={
-                "BrandGuess": "Brand",
-                var_col: "Variation",
-                "TextSource": "SkuID"
-            })
+            view_confirmed = confirmed_df[["Type", "Brand", "Variation", "SkuID", "OriginalIndex"]].head(max_rows).copy()
             view_confirmed.insert(0, "Select", False)
 
             edited_confirmed = st.data_editor(
