@@ -315,13 +315,13 @@ def find_best_match(df, synonyms, fallback_type="text"):
         scores.sort(reverse=True)
         return scores[0][1] if scores else (0 if len(df.columns) == 1 else 1)
 
-def build_base_df(df, var_col, qty_col, skuid_col, productname_col, brand_col):
+def build_base_df(df, var_col, qty_col, productname_col, skuid_col, brand_col):
     """Build base dataframe with FIXED column names from user selections"""
     out = pd.DataFrame({
         "Variation": df[var_col].astype(str).str.strip(),
         "Quantity": pd.to_numeric(df[qty_col], errors="coerce"),
-        "SkuID": df[skuid_col].astype(str).str.strip(),
         "ProductName": df[productname_col].astype(str).str.strip(),
+        "SkuID": df[skuid_col].astype(str).str.strip(),
         "Brand": df[brand_col].astype(str).str.strip(),
         "OriginalIndex": range(len(df))
     })
@@ -637,10 +637,10 @@ with st.expander("View columns"):
 # ============================================================================
 
 st.markdown("### Column Settings")
-st.caption("Map your file columns to output format (Variation | Quantity | SkuID | Product Name)")
+st.caption("Map your file columns to output format (Variation | Quantity | Product Name | SkuID)")
 
 # Auto-detect columns based on actual column names (native detection)
-# Order: Variation, Quantity, SkuID, Product Name
+# Order: Variation, Quantity, Product Name, SkuID
 var_idx = find_column_by_name(raw_df, ["variation", "variasi", "variant", "kode sarung", "kode"])
 if var_idx is None:
     var_idx = find_best_match(raw_df, VAR_SYNS, "text") or 0
@@ -649,13 +649,13 @@ qty_idx = find_column_by_name(raw_df, ["quantity", "qty", "jumlah", "kuantitas"]
 if qty_idx is None:
     qty_idx = find_best_match(raw_df, QTY_SYNS, "num") or (0 if len(raw_df.columns) == 1 else 1)
 
-skuid_idx = find_column_by_name(raw_df, ["skuid", "sku id", "sku", "product id"])
-if skuid_idx is None:
-    skuid_idx = find_best_match(raw_df, NAME_SYNS, "text") or 0
-
 productname_idx = find_column_by_name(raw_df, ["product name", "nama produk", "product", "nama", "title", "judul"])
 if productname_idx is None:
     productname_idx = find_best_match(raw_df, NAME_SYNS, "text") or 0
+
+skuid_idx = find_column_by_name(raw_df, ["skuid", "sku id", "sku", "product id"])
+if skuid_idx is None:
+    skuid_idx = find_best_match(raw_df, NAME_SYNS, "text") or 0
 
 brand_idx = find_column_by_name(raw_df, ["brand", "merk", "merek", "brand name"])
 if brand_idx is None:
@@ -666,117 +666,76 @@ if saved_cols and saved_cols.get("file_hash") == file_hash:
     # Backward compatibility: handle old format
     var_col = saved_cols.get("var_col", raw_df.columns[var_idx])
     qty_col = saved_cols.get("qty_col", raw_df.columns[qty_idx])
-    skuid_col = saved_cols.get("skuid_col", saved_cols.get("text_col", raw_df.columns[skuid_idx]))
     productname_col = saved_cols.get("productname_col", saved_cols.get("type_col", saved_cols.get("text_col", raw_df.columns[productname_idx])))
+    skuid_col = saved_cols.get("skuid_col", saved_cols.get("text_col", raw_df.columns[skuid_idx]))
     brand_col = saved_cols.get("brand_col", saved_cols.get("text_col", raw_df.columns[brand_idx]))
 
     if var_col not in raw_df.columns:
         var_col = raw_df.columns[var_idx]
     if qty_col not in raw_df.columns:
         qty_col = raw_df.columns[qty_idx]
-    if skuid_col not in raw_df.columns:
-        skuid_col = raw_df.columns[skuid_idx]
     if productname_col not in raw_df.columns:
         productname_col = raw_df.columns[productname_idx]
+    if skuid_col not in raw_df.columns:
+        skuid_col = raw_df.columns[skuid_idx]
     if brand_col not in raw_df.columns:
         brand_col = raw_df.columns[brand_idx]
 else:
     var_col = raw_df.columns[var_idx]
     qty_col = raw_df.columns[qty_idx]
-    skuid_col = raw_df.columns[skuid_idx]
     productname_col = raw_df.columns[productname_idx]
+    skuid_col = raw_df.columns[skuid_idx]
     brand_col = raw_df.columns[brand_idx]
 
-# Layout: vertical on mobile, 2x2 grid on desktop
-if mobile_mode:
-    # Mobile: full width vertical layout (urutan: Variation, Quantity, SkuID, Product Name, Brand)
+# Layout: compact 2-column grid for both mobile and desktop
+# Mobile: smaller dropdowns, Desktop: same layout
+c1, c2 = st.columns([1, 1])
+with c1:
     var_col = st.selectbox(
-        "Kolom Variation",
+        "Variation",
         options=list(raw_df.columns),
         index=list(raw_df.columns).index(var_col),
-        key="sel_var",
-        help="Pilih kolom untuk Variation"
+        key="sel_var"
     )
+with c2:
     qty_col = st.selectbox(
-        "Kolom Quantity",
+        "Quantity",
         options=list(raw_df.columns),
         index=list(raw_df.columns).index(qty_col),
-        key="sel_qty",
-        help="Pilih kolom untuk Quantity"
+        key="sel_qty"
     )
-    skuid_col = st.selectbox(
-        "Kolom SkuID",
-        options=list(raw_df.columns),
-        index=list(raw_df.columns).index(skuid_col),
-        key="sel_skuid",
-        help="Pilih kolom untuk SkuID"
-    )
+
+c3, c4 = st.columns([1, 1])
+with c3:
     productname_col = st.selectbox(
-        "Kolom Product Name",
+        "Product Name",
         options=list(raw_df.columns),
         index=list(raw_df.columns).index(productname_col),
-        key="sel_productname",
-        help="Pilih kolom untuk Product Name"
+        key="sel_productname"
     )
+with c4:
+    skuid_col = st.selectbox(
+        "SkuID",
+        options=list(raw_df.columns),
+        index=list(raw_df.columns).index(skuid_col),
+        key="sel_skuid"
+    )
+
+c5, c6 = st.columns([1, 1])
+with c5:
     brand_col = st.selectbox(
-        "Kolom Brand/Merk",
+        "Brand/Merk",
         options=list(raw_df.columns),
         index=list(raw_df.columns).index(brand_col),
-        key="sel_brand",
-        help="Pilih kolom untuk Brand/Merk"
-    )
-else:
-    # Desktop: 2x2 grid layout
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        var_col = st.selectbox(
-            "Kolom Variation",
-            options=list(raw_df.columns),
-            index=list(raw_df.columns).index(var_col),
-            key="sel_var",
-            help="Pilih kolom untuk Variation"
-        )
-    with c2:
-        qty_col = st.selectbox(
-            "Kolom Quantity",
-            options=list(raw_df.columns),
-            index=list(raw_df.columns).index(qty_col),
-            key="sel_qty",
-            help="Pilih kolom untuk Quantity"
-        )
-
-    c3, c4 = st.columns([1, 1])
-    with c3:
-        skuid_col = st.selectbox(
-            "Kolom SkuID",
-            options=list(raw_df.columns),
-            index=list(raw_df.columns).index(skuid_col),
-            key="sel_skuid",
-            help="Pilih kolom untuk SkuID"
-        )
-    with c4:
-        productname_col = st.selectbox(
-            "Kolom Product Name",
-            options=list(raw_df.columns),
-            index=list(raw_df.columns).index(productname_col),
-            key="sel_productname",
-            help="Pilih kolom untuk Product Name"
-        )
-
-    brand_col = st.selectbox(
-        "Kolom Brand/Merk",
-        options=list(raw_df.columns),
-        index=list(raw_df.columns).index(brand_col),
-        key="sel_brand",
-        help="Pilih kolom untuk Brand/Merk"
+        key="sel_brand"
     )
 
 st.session_state["selected_columns"] = {
     "file_hash": file_hash,
     "var_col": var_col,
     "qty_col": qty_col,
-    "skuid_col": skuid_col,
     "productname_col": productname_col,
+    "skuid_col": skuid_col,
     "brand_col": brand_col
 }
 
@@ -824,7 +783,7 @@ with col_filter2:
 # BUILD BASE & FILTER
 # ============================================================================
 
-base = build_base_df(raw_df, var_col, qty_col, skuid_col, productname_col, brand_col)
+base = build_base_df(raw_df, var_col, qty_col, productname_col, skuid_col, brand_col)
 
 # Apply keyword filter if specified
 if keywords:
@@ -920,8 +879,8 @@ with tab1:
     else:
         with st.form("form_pending"):
             max_rows = min(len(pending_df), 5000)
-            # Output order: Select, Variation, Quantity, SkuID, ProductName
-            view_pending = pending_df[["Variation", "Quantity", "SkuID", "ProductName", "OriginalIndex"]].head(max_rows).copy()
+            # Output order: Select, Variation, Quantity, ProductName, SkuID
+            view_pending = pending_df[["Variation", "Quantity", "ProductName", "SkuID", "OriginalIndex"]].head(max_rows).copy()
             view_pending.insert(0, "Select", False)
 
             if mobile_mode:
@@ -936,10 +895,10 @@ with tab1:
                         "Select": st.column_config.CheckboxColumn("✓", width="small"),
                         "Variation": st.column_config.TextColumn("Var", width="small"),
                         "Quantity": st.column_config.NumberColumn("Qty", width="small"),
-                        "SkuID": st.column_config.TextColumn("SKU", width="small"),
                         "ProductName": st.column_config.TextColumn("Product", width="small"),
+                        "SkuID": st.column_config.TextColumn("SKU", width="small"),
                     },
-                    disabled=["Variation", "Quantity", "SkuID", "ProductName"],
+                    disabled=["Variation", "Quantity", "ProductName", "SkuID"],
                     key="editor_pending"
                 )
             else:
@@ -954,10 +913,10 @@ with tab1:
                         "Select": st.column_config.CheckboxColumn("Select", width="small"),
                         "Variation": st.column_config.TextColumn("Variation", width="large"),
                         "Quantity": st.column_config.NumberColumn("Quantity", width="small"),
-                        "SkuID": st.column_config.TextColumn("SkuID", width="large"),
                         "ProductName": st.column_config.TextColumn("Product Name", width="large"),
+                        "SkuID": st.column_config.TextColumn("SkuID", width="large"),
                     },
-                    disabled=["Variation", "Quantity", "SkuID", "ProductName"],
+                    disabled=["Variation", "Quantity", "ProductName", "SkuID"],
                     key="editor_pending"
                 )
 
@@ -997,7 +956,7 @@ with tab2:
     else:
         with st.form("form_processed"):
             max_rows = min(len(processed_df), 5000)
-            view_processed = processed_df[["Variation", "Quantity", "SkuID", "ProductName", "OriginalIndex"]].head(max_rows).copy()
+            view_processed = processed_df[["Variation", "Quantity", "ProductName", "SkuID", "OriginalIndex"]].head(max_rows).copy()
             view_processed.insert(0, "Select", False)
 
             if mobile_mode:
@@ -1012,10 +971,10 @@ with tab2:
                         "Select": st.column_config.CheckboxColumn("✓", width="small"),
                         "Variation": st.column_config.TextColumn("Var", width="small"),
                         "Quantity": st.column_config.NumberColumn("Qty", width="small"),
-                        "SkuID": st.column_config.TextColumn("SKU", width="small"),
                         "ProductName": st.column_config.TextColumn("Product", width="small"),
+                        "SkuID": st.column_config.TextColumn("SKU", width="small"),
                     },
-                    disabled=["Variation", "Quantity", "SkuID", "ProductName"],
+                    disabled=["Variation", "Quantity", "ProductName", "SkuID"],
                     key="editor_processed"
                 )
             else:
@@ -1030,10 +989,10 @@ with tab2:
                         "Select": st.column_config.CheckboxColumn("Select", width="small"),
                         "Variation": st.column_config.TextColumn("Variation", width="large"),
                         "Quantity": st.column_config.NumberColumn("Quantity", width="small"),
-                        "SkuID": st.column_config.TextColumn("SkuID", width="large"),
                         "ProductName": st.column_config.TextColumn("Product Name", width="large"),
+                        "SkuID": st.column_config.TextColumn("SkuID", width="large"),
                     },
-                    disabled=["Variation", "Quantity", "SkuID", "ProductName"],
+                    disabled=["Variation", "Quantity", "ProductName", "SkuID"],
                     key="editor_processed"
                 )
 
@@ -1074,7 +1033,7 @@ with tab3:
     else:
         with st.form("form_confirmed"):
             max_rows = min(len(confirmed_df), 5000)
-            view_confirmed = confirmed_df[["Variation", "Quantity", "SkuID", "ProductName", "OriginalIndex"]].head(max_rows).copy()
+            view_confirmed = confirmed_df[["Variation", "Quantity", "ProductName", "SkuID", "OriginalIndex"]].head(max_rows).copy()
             view_confirmed.insert(0, "Select", False)
 
             if mobile_mode:
@@ -1089,10 +1048,10 @@ with tab3:
                         "Select": st.column_config.CheckboxColumn("✓", width="small"),
                         "Variation": st.column_config.TextColumn("Var", width="small"),
                         "Quantity": st.column_config.NumberColumn("Qty", width="small"),
-                        "SkuID": st.column_config.TextColumn("SKU", width="small"),
                         "ProductName": st.column_config.TextColumn("Product", width="small"),
+                        "SkuID": st.column_config.TextColumn("SKU", width="small"),
                     },
-                    disabled=["Variation", "Quantity", "SkuID", "ProductName"],
+                    disabled=["Variation", "Quantity", "ProductName", "SkuID"],
                     key="editor_confirmed"
                 )
             else:
@@ -1107,10 +1066,10 @@ with tab3:
                         "Select": st.column_config.CheckboxColumn("Select", width="small"),
                         "Variation": st.column_config.TextColumn("Variation", width="large"),
                         "Quantity": st.column_config.NumberColumn("Quantity", width="small"),
-                        "SkuID": st.column_config.TextColumn("SkuID", width="large"),
                         "ProductName": st.column_config.TextColumn("Product Name", width="large"),
+                        "SkuID": st.column_config.TextColumn("SkuID", width="large"),
                     },
-                    disabled=["Variation", "Quantity", "SkuID", "ProductName"],
+                    disabled=["Variation", "Quantity", "ProductName", "SkuID"],
                     key="editor_confirmed"
                 )
 
