@@ -594,6 +594,23 @@ except Exception as e:
 if uploaded:
     st.success(f"Loaded: **{file_name}** • {len(raw_df)} rows, {len(raw_df.columns)} columns")
 
+    # Save file to session immediately after upload
+    timestamp = datetime.utcnow().isoformat() + "Z"
+    initial_state = {
+        "saved_at": timestamp,
+        "app_version": "v10",
+        "file_name": file_name,
+        "file_hash": file_hash,
+        "keywords": st.session_state.get("keywords", []),
+        "processed_ids": [],
+        "confirmed_ids": [],
+        "selected_columns": {}
+    }
+    save_session(session_code, initial_state, raw_bytes, file_name)
+    st.session_state["loaded_file_bytes"] = raw_bytes
+    st.session_state["loaded_file_name"] = file_name
+    st.session_state["last_checked"] = timestamp
+
 with st.expander("View columns"):
     st.dataframe(pd.DataFrame({"Column": raw_df.columns}), use_container_width=True)
 
@@ -610,11 +627,12 @@ name_idx = find_best_match(raw_df, NAME_SYNS, "text") or var_idx
 
 saved_cols = st.session_state.get("selected_columns", {})
 if saved_cols and saved_cols.get("file_hash") == file_hash:
-    type_col = saved_cols.get("type_col", raw_df.columns[name_idx])
-    brand_col = saved_cols.get("brand_col", raw_df.columns[name_idx])
+    # Backward compatibility: handle old 3-column format
+    type_col = saved_cols.get("type_col", saved_cols.get("text_col", raw_df.columns[name_idx]))
+    brand_col = saved_cols.get("brand_col", saved_cols.get("text_col", raw_df.columns[name_idx]))
     var_col = saved_cols.get("var_col", raw_df.columns[var_idx])
     qty_col = saved_cols.get("qty_col", raw_df.columns[qty_idx])
-    skuid_col = saved_cols.get("skuid_col", raw_df.columns[name_idx])
+    skuid_col = saved_cols.get("skuid_col", saved_cols.get("text_col", raw_df.columns[name_idx]))
 
     if type_col not in raw_df.columns:
         type_col = raw_df.columns[name_idx]
