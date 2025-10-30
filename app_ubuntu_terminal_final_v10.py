@@ -1,14 +1,13 @@
 # app_ubuntu_terminal_final_v10.py
 # Jalankan: streamlit run app_ubuntu_terminal_final_v10.py --server.port 8501 --server.address 0.0.0.0
-# Python 3.14 kompatibel - Multi-device access dengan login code
+# Python 3.14 kompatibel - Multi-device sync dengan auto-load file
 
 import io
 import re
 import json
 import hashlib
 import os
-import secrets
-import string
+import base64
 from datetime import datetime
 
 import pandas as pd
@@ -32,15 +31,33 @@ CSS = """
     color: white;
     border: none;
     border-radius: 8px;
+    padding: 0.5rem 1rem;
 }
-.block-container .stDataEditor {
-    border: 1px solid #333;
-    border-radius: 8px;
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px;
+}
+.stTabs [data-baseweb="tab"] {
+    background-color: #1a1a1a;
+    border-radius: 8px 8px 0 0;
+    padding: 0.5rem 1.5rem;
+    color: #e5e5e5;
+}
+.stTabs [aria-selected="true"] {
+    background-color: #dd4814;
 }
 div[data-testid="stForm"] {
     border: 1px solid #333;
     border-radius: 8px;
     padding: 1rem;
+    background: #1a1a1a;
+}
+.login-card {
+    background: #1a1a1a;
+    border: 2px solid #333;
+    border-radius: 12px;
+    padding: 2rem;
+    margin: 2rem auto;
+    max-width: 500px;
 }
 </style>
 """
@@ -49,10 +66,6 @@ st.markdown(CSS, unsafe_allow_html=True)
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
-
-def make_code(n=4):
-    """Generate random lowercase code"""
-    return ''.join(secrets.choice(string.ascii_lowercase) for _ in range(n))
 
 def file_fingerprint(b: bytes) -> str:
     """Generate SHA1 hash untuk file tracking"""
@@ -178,12 +191,20 @@ def to_xlsx_bytes(df):
         df.to_excel(writer, index=False)
     return buf.getvalue()
 
-def save_session(session_code, state_data):
-    """Auto-save session ke storage"""
+def save_session(session_code, state_data, file_bytes=None, file_name=None):
+    """Auto-save session ke storage (with file data)"""
     os.makedirs("storage", exist_ok=True)
-    path = os.path.join("storage", f"{session_code}.json")
-    with open(path, "w", encoding="utf-8") as f:
+
+    # Save JSON state
+    json_path = os.path.join("storage", f"{session_code}.json")
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(state_data, f, ensure_ascii=False, indent=2)
+
+    # Save file data jika ada
+    if file_bytes and file_name:
+        file_path = os.path.join("storage", f"{session_code}_data_{file_name}")
+        with open(file_path, "wb") as f:
+            f.write(file_bytes)
 
 def load_session(session_code):
     """Load session dari storage"""
@@ -191,6 +212,14 @@ def load_session(session_code):
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
+    return None
+
+def load_session_file(session_code, file_name):
+    """Load file data dari storage"""
+    path = os.path.join("storage", f"{session_code}_data_{file_name}")
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return f.read()
     return None
 
 # ============================================================================
@@ -215,39 +244,36 @@ if "keywords" not in st.session_state:
 if "selected_columns" not in st.session_state:
     st.session_state["selected_columns"] = {}
 
+if "loaded_file_bytes" not in st.session_state:
+    st.session_state["loaded_file_bytes"] = None
+
+if "loaded_file_name" not in st.session_state:
+    st.session_state["loaded_file_name"] = None
+
 # ============================================================================
 # LOGIN SCREEN
 # ============================================================================
 
 if not st.session_state["logged_in"]:
-    st.markdown("""
-    ### 🔐 Login ke Session
-    **Akses program pesanan 3 tahap**
+    st.markdown("<div style='text-align: center; margin-top: 2rem;'>", unsafe_allow_html=True)
+    st.markdown("# 🔐 Login Session")
+    st.markdown("### Program Pesanan 3 Tahap")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    Masukkan kode 4 huruf kecil untuk akses session Anda.
-    - PC sebagai server (jalankan dengan `--server.address 0.0.0.0`)
-    - HP/Laptop lain bisa akses dengan IP:port yang sama
-    """)
+    st.markdown("<div class='login-card'>", unsafe_allow_html=True)
 
-    col1, col2 = st.columns([3, 1])
+    st.markdown("**Masukkan kode sesi (4 huruf kecil)**")
+    st.caption("PC/Laptop dan HP harus pakai kode yang sama untuk sync data")
 
-    with col1:
-        input_code = st.text_input(
-            "Kode Session (4 huruf kecil a-z)",
-            max_chars=4,
-            placeholder="contoh: abcd",
-            help="Masukkan kode 4 huruf kecil untuk login/buat session baru"
-        ).lower()
+    input_code = st.text_input(
+        "Kode Session",
+        max_chars=4,
+        placeholder="contoh: abcd",
+        help="Masukkan 4 huruf kecil (a-z)",
+        label_visibility="collapsed"
+    ).lower()
 
-    with col2:
-        st.write("")  # spacing
-        st.write("")  # spacing
-        if st.button("🎲 Generate", use_container_width=True):
-            new_code = make_code(4)
-            st.info(f"Kode baru: **{new_code}**")
-            st.stop()
-
-    if st.button("✅ Login / Buat Session", type="primary", use_container_width=True):
+    if st.button("✅ Login / Buat Session Baru", type="primary", use_container_width=True):
         if len(input_code) == 4 and input_code.isalpha() and input_code.islower():
             st.session_state["session_code"] = input_code
             st.session_state["logged_in"] = True
@@ -259,6 +285,15 @@ if not st.session_state["logged_in"]:
                 st.session_state["processed_ids"] = set(saved.get("processed_ids", []))
                 st.session_state["confirmed_ids"] = set(saved.get("confirmed_ids", []))
                 st.session_state["selected_columns"] = saved.get("selected_columns", {})
+
+                # Load file jika ada
+                file_name = saved.get("file_name")
+                if file_name:
+                    file_bytes = load_session_file(input_code, file_name)
+                    if file_bytes:
+                        st.session_state["loaded_file_bytes"] = file_bytes
+                        st.session_state["loaded_file_name"] = file_name
+
                 st.success(f"✅ Session **{input_code}** dimuat!")
             else:
                 st.success(f"✅ Session baru **{input_code}** dibuat!")
@@ -267,83 +302,107 @@ if not st.session_state["logged_in"]:
         else:
             st.error("⚠️ Kode harus 4 huruf kecil (a-z). Contoh: abcd")
 
+    st.markdown("</div>", unsafe_allow_html=True)
+
     st.markdown("---")
-    st.caption("💡 Tips: Gunakan kode yang sama di perangkat lain (HP/laptop) untuk akses session yang sama")
+    st.markdown("### 💡 Cara Penggunaan Multi-Device")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        **Di PC (Server):**
+        1. Jalankan: `streamlit run app.py --server.address 0.0.0.0`
+        2. Login dengan kode (misal: `abcd`)
+        3. Upload file pesanan
+        4. Proses data
+        """)
+    with col2:
+        st.markdown("""
+        **Di HP (Client):**
+        1. Sambung Wi-Fi yang sama
+        2. Buka: `http://{IP-PC}:8501`
+        3. Login dengan kode **yang sama** (`abcd`)
+        4. Data otomatis sync! ✨
+        """)
+
     st.stop()
 
 # ============================================================================
-# LOGGED IN - SHOW SESSION CODE & LOGOUT
+# LOGGED IN - HEADER
 # ============================================================================
 
 session_code = st.session_state["session_code"]
 
-st.markdown(f"""
-### nariyahsore:~
-**Program proses pesanan 3 tahap — v10**
-🔑 Session: **`{session_code}`** | Alur: Upload → Filter → Pending → Processed → Confirmed → Download
-""")
-
-col_header1, col_header2 = st.columns([5, 1])
+col_header1, col_header2 = st.columns([6, 1])
+with col_header1:
+    st.markdown(f"""
+    ### nariyahsore:~$ session **`{session_code}`**
+    **Program Pesanan 3 Tahap (v10)** • Auto-save setiap perubahan
+    """)
 with col_header2:
+    st.write("")
+    st.write("")
     if st.button("🚪 Logout", use_container_width=True):
         st.session_state["logged_in"] = False
         st.session_state["session_code"] = ""
+        st.session_state["loaded_file_bytes"] = None
+        st.session_state["loaded_file_name"] = None
         st.rerun()
 
 # ============================================================================
-# SIDEBAR
+# FILE UPLOAD / AUTO-LOAD
 # ============================================================================
 
-st.sidebar.header("⚙️ Pengaturan")
-max_rows_show = st.sidebar.number_input(
-    "Tampilkan baris (maks)",
-    min_value=100,
-    max_value=100000,
-    value=5000,
-    step=100
-)
-st.sidebar.caption(f"Session: **{session_code}**")
-st.sidebar.caption("Auto-save setiap perubahan")
+# Cek apakah ada file yang sudah di-load dari session
+if st.session_state["loaded_file_bytes"] and st.session_state["loaded_file_name"]:
+    uploaded = None
+    raw_bytes = st.session_state["loaded_file_bytes"]
+    file_name = st.session_state["loaded_file_name"]
 
-# ============================================================================
-# FILE UPLOAD
-# ============================================================================
+    st.info(f"📂 File dari session: **{file_name}** (auto-loaded)")
 
-uploaded = st.file_uploader("📂 Unggah file CSV/XLSX pesanan", type=["csv", "xlsx", "xls"])
+    if st.button("🔄 Upload File Baru"):
+        st.session_state["loaded_file_bytes"] = None
+        st.session_state["loaded_file_name"] = None
+        st.rerun()
+else:
+    uploaded = st.file_uploader("📂 Unggah file CSV/XLSX pesanan", type=["csv", "xlsx", "xls"])
 
-if not uploaded:
-    st.info("Silakan unggah file untuk mulai memproses.")
-    st.stop()
+    if not uploaded:
+        st.warning("⚠️ Silakan unggah file untuk mulai memproses.")
+        st.stop()
 
-raw_bytes = uploaded.read()
+    raw_bytes = uploaded.read()
+    file_name = uploaded.name
+
 file_hash = file_fingerprint(raw_bytes)
 
 try:
-    raw_df = smart_read(raw_bytes, uploaded.name)
+    raw_df = smart_read(raw_bytes, file_name)
 except Exception as e:
     st.error(f"❌ Gagal membaca file: {e}")
     st.stop()
 
-st.success(f"✅ File dimuat: **{uploaded.name}** • {len(raw_df)} baris, {len(raw_df.columns)} kolom")
+if uploaded:  # Hanya tampilkan jika baru upload
+    st.success(f"✅ File dimuat: **{file_name}** • {len(raw_df)} baris, {len(raw_df.columns)} kolom")
 
-with st.expander("🧭 Lihat kolom asli"):
-    st.write(pd.DataFrame({"Columns": raw_df.columns}))
+with st.expander("🧭 Lihat kolom file"):
+    st.dataframe(pd.DataFrame({"Kolom": raw_df.columns}), use_container_width=True)
 
 # ============================================================================
 # COLUMN SELECTION
 # ============================================================================
 
+st.markdown("### ⚙️ Pengaturan Kolom")
+
 var_idx = find_best_match(raw_df, VAR_SYNS, "text") or 0
 qty_idx = find_best_match(raw_df, QTY_SYNS, "num") or (0 if len(raw_df.columns) == 1 else 1)
 name_idx = find_best_match(raw_df, NAME_SYNS, "text") or var_idx
 
-# Load dari session jika ada
 saved_cols = st.session_state.get("selected_columns", {})
 if saved_cols and saved_cols.get("file_hash") == file_hash:
     var_col = saved_cols.get("var_col", raw_df.columns[var_idx])
     qty_col = saved_cols.get("qty_col", raw_df.columns[qty_idx])
     text_source_col = saved_cols.get("text_col", raw_df.columns[name_idx])
-    # Pastikan kolom masih ada
     if var_col not in raw_df.columns:
         var_col = raw_df.columns[var_idx]
     if qty_col not in raw_df.columns:
@@ -358,27 +417,26 @@ else:
 c1, c2, c3 = st.columns([1, 1, 1])
 with c1:
     var_col = st.selectbox(
-        "Pilih kolom Variation/SKU/Varian",
+        "📦 Kolom Variasi/SKU/Varian",
         options=list(raw_df.columns),
         index=list(raw_df.columns).index(var_col),
         key="sel_var"
     )
 with c2:
     qty_col = st.selectbox(
-        "Pilih kolom Qty/Jumlah",
+        "🔢 Kolom Qty/Jumlah",
         options=list(raw_df.columns),
         index=list(raw_df.columns).index(qty_col),
         key="sel_qty"
     )
 with c3:
     text_source_col = st.selectbox(
-        "Kolom teks sumber (tipe/merk)",
+        "📝 Kolom Teks Sumber (Tipe/Merk)",
         options=list(raw_df.columns),
         index=list(raw_df.columns).index(text_source_col),
         key="sel_text"
     )
 
-# Simpan pilihan kolom ke session
 st.session_state["selected_columns"] = {
     "file_hash": file_hash,
     "var_col": var_col,
@@ -387,24 +445,35 @@ st.session_state["selected_columns"] = {
 }
 
 # ============================================================================
-# BUILD BASE & FILTER BY KEYWORDS
+# KEYWORD FILTER
 # ============================================================================
 
-base = build_base_df(raw_df, var_col, qty_col, text_source_col)
+st.markdown("### 🔎 Filter Tipe Produk")
 
-st.markdown("### 🔎 Filter berdasarkan **tipe sarung**")
-kw_input = st.text_input(
-    "Tipe untuk ditampilkan (pisahkan dengan koma/spasi)",
-    value=", ".join(st.session_state["keywords"]) if st.session_state["keywords"] else "ssl, stk",
-    help="Contoh: ssl, stk, doby, songket, rayon. Kosongkan untuk tampilkan semua."
-)
+col_kw1, col_kw2 = st.columns([4, 1])
+with col_kw1:
+    kw_input = st.text_input(
+        "Kata kunci filter",
+        value=", ".join(st.session_state["keywords"]) if st.session_state["keywords"] else "ssl, stk",
+        help="Pisahkan dengan koma/spasi. Contoh: ssl, stk, doby, songket",
+        label_visibility="collapsed"
+    )
+with col_kw2:
+    st.write("")
+    st.write("")
+    st.caption(f"🏷️ {len(st.session_state['keywords'])} aktif" if st.session_state["keywords"] else "Semua ditampilkan")
 
 cur_keywords = [k.strip() for k in re.split(r"[\s,]+", kw_input) if k.strip()]
 if cur_keywords != st.session_state["keywords"]:
     st.session_state["keywords"] = cur_keywords
 
 keywords = st.session_state["keywords"]
-st.caption(f"🏷️ Kata kunci aktif: {', '.join(keywords) if keywords else '(kosong → tampil semua)'}")
+
+# ============================================================================
+# BUILD BASE & FILTER
+# ============================================================================
+
+base = build_base_df(raw_df, var_col, qty_col, text_source_col)
 
 if keywords:
     base["Type"] = categorize_by_keywords(base["TextSource"], keywords)
@@ -423,14 +492,13 @@ if keywords:
 else:
     filtered = filtered.sort_values(["OriginalIndex"]).reset_index(drop=True)
 
-# Rename kolom untuk display (dinamis sesuai pilihan user)
 filtered = filtered.rename(columns={
-    "VariationData": var_col,  # Dinamis!
-    "QtyData": qty_col          # Dinamis!
+    "VariationData": var_col,
+    "QtyData": qty_col
 })
 
 # ============================================================================
-# CATEGORIZE DATA INTO 3 BUCKETS
+# CATEGORIZE DATA
 # ============================================================================
 
 processed_ids = set(st.session_state["processed_ids"])
@@ -451,185 +519,202 @@ confirmed_df = filtered[
 ].copy()
 
 # ============================================================================
-# HELPER: AUTO-SAVE FUNCTION
+# AUTO-SAVE HELPER
 # ============================================================================
 
 def auto_save():
-    """Auto-save session setiap perubahan"""
+    """Auto-save session"""
     state_data = {
         "saved_at": datetime.utcnow().isoformat() + "Z",
         "app_version": "v10",
-        "file_name": uploaded.name,
+        "file_name": file_name,
         "file_hash": file_hash,
         "keywords": keywords,
         "processed_ids": sorted(list(processed_ids)),
         "confirmed_ids": sorted(list(confirmed_ids)),
         "selected_columns": st.session_state["selected_columns"]
     }
-    save_session(session_code, state_data)
+    save_session(session_code, state_data, raw_bytes, file_name)
 
 # ============================================================================
-# SECTION 1: BELUM DIPROSES
-# ============================================================================
-
-st.markdown("---")
-st.subheader("📋 1. Belum Diproses")
-st.caption(f"Total: {len(pending_df)} item | Ditampilkan: {min(len(pending_df), max_rows_show)}")
-
-with st.form("form_pending"):
-    view_pending = pending_df[["Type", "BrandGuess", var_col, qty_col, "TextSource", "OriginalIndex"]].head(max_rows_show).copy()
-    view_pending["✓"] = False
-
-    edited_pending = st.data_editor(
-        view_pending.drop(columns=["OriginalIndex"]),
-        use_container_width=True,
-        height=350,
-        num_rows="fixed",
-        column_config={
-            "✓": st.column_config.CheckboxColumn("✓", help="Centang untuk memilih"),
-            "Type": st.column_config.TextColumn("Type", width="small"),
-            "BrandGuess": st.column_config.TextColumn("Brand", width="small"),
-            var_col: st.column_config.TextColumn(var_col, width="medium"),
-            qty_col: st.column_config.NumberColumn(qty_col, width="small"),
-            "TextSource": st.column_config.TextColumn("Text Source", width="large"),
-        },
-        disabled=["Type", "BrandGuess", var_col, qty_col, "TextSource"],
-        key="editor_pending"
-    )
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        btn_to_processed = st.form_submit_button("➡️ Pindah ke Sudah Diproses", use_container_width=True)
-    with col2:
-        btn_to_confirmed = st.form_submit_button("⏭️ Langsung ke Konfirmasi", use_container_width=True)
-    with col3:
-        btn_all_to_processed = st.form_submit_button("➡️ Semua → Sudah Diproses", use_container_width=True)
-
-    if btn_to_processed or btn_all_to_processed:
-        mask = edited_pending["✓"] if btn_to_processed else pd.Series([True] * len(edited_pending))
-        selected_ids = view_pending.loc[mask.to_numpy(), "OriginalIndex"].tolist()
-
-        if selected_ids:
-            processed_ids.update(selected_ids)
-            st.session_state["processed_ids"] = processed_ids
-            auto_save()
-            st.rerun()
-
-    if btn_to_confirmed:
-        mask = edited_pending["✓"]
-        selected_ids = view_pending.loc[mask.to_numpy(), "OriginalIndex"].tolist()
-
-        if selected_ids:
-            confirmed_ids.update(selected_ids)
-            st.session_state["confirmed_ids"] = confirmed_ids
-            auto_save()
-            st.rerun()
-
-# ============================================================================
-# SECTION 2: SUDAH DIPROSES
+# TABS FOR 3 CATEGORIES
 # ============================================================================
 
 st.markdown("---")
-st.subheader("⚙️ 2. Sudah Diproses")
-st.caption(f"Total: {len(processed_df)} item | Ditampilkan: {min(len(processed_df), max_rows_show)}")
+st.markdown(f"### 📊 Status: {len(pending_df)} Pending • {len(processed_df)} Processed • {len(confirmed_df)} Confirmed")
 
-with st.form("form_processed"):
-    view_processed = processed_df[["Type", "BrandGuess", var_col, qty_col, "TextSource", "OriginalIndex"]].head(max_rows_show).copy()
-    view_processed["✓"] = False
-
-    edited_processed = st.data_editor(
-        view_processed.drop(columns=["OriginalIndex"]),
-        use_container_width=True,
-        height=350,
-        num_rows="fixed",
-        column_config={
-            "✓": st.column_config.CheckboxColumn("✓", help="Centang untuk memilih"),
-            "Type": st.column_config.TextColumn("Type", width="small"),
-            "BrandGuess": st.column_config.TextColumn("Brand", width="small"),
-            var_col: st.column_config.TextColumn(var_col, width="medium"),
-            qty_col: st.column_config.NumberColumn(qty_col, width="small"),
-            "TextSource": st.column_config.TextColumn("Text Source", width="large"),
-        },
-        disabled=["Type", "BrandGuess", var_col, qty_col, "TextSource"],
-        key="editor_processed"
-    )
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        btn_back_to_pending = st.form_submit_button("⬅️ Balik ke Belum Diproses", use_container_width=True)
-    with col2:
-        btn_proc_to_confirmed = st.form_submit_button("➡️ Pindah ke Konfirmasi", use_container_width=True)
-    with col3:
-        btn_all_proc_to_confirmed = st.form_submit_button("➡️ Semua → Konfirmasi", use_container_width=True)
-
-    if btn_back_to_pending:
-        mask = edited_processed["✓"]
-        selected_ids = view_processed.loc[mask.to_numpy(), "OriginalIndex"].tolist()
-
-        if selected_ids:
-            processed_ids.difference_update(selected_ids)
-            st.session_state["processed_ids"] = processed_ids
-            auto_save()
-            st.rerun()
-
-    if btn_proc_to_confirmed or btn_all_proc_to_confirmed:
-        mask = edited_processed["✓"] if btn_proc_to_confirmed else pd.Series([True] * len(edited_processed))
-        selected_ids = view_processed.loc[mask.to_numpy(), "OriginalIndex"].tolist()
-
-        if selected_ids:
-            processed_ids.difference_update(selected_ids)
-            confirmed_ids.update(selected_ids)
-            st.session_state["processed_ids"] = processed_ids
-            st.session_state["confirmed_ids"] = confirmed_ids
-            auto_save()
-            st.rerun()
+tab1, tab2, tab3 = st.tabs([
+    f"📋 Belum Diproses ({len(pending_df)})",
+    f"⚙️ Sudah Diproses ({len(processed_df)})",
+    f"✅ Konfirmasi ({len(confirmed_df)})"
+])
 
 # ============================================================================
-# SECTION 3: KONFIRMASI (FINAL)
+# TAB 1: PENDING
 # ============================================================================
 
-st.markdown("---")
-st.subheader("✅ 3. Konfirmasi (Final)")
-st.caption(f"Total: {len(confirmed_df)} item | Ditampilkan: {min(len(confirmed_df), max_rows_show)}")
+with tab1:
+    st.caption("Item yang belum diproses. Centang item lalu pindahkan ke tahap berikutnya.")
 
-with st.form("form_confirmed"):
-    view_confirmed = confirmed_df[["Type", "BrandGuess", var_col, qty_col, "TextSource", "OriginalIndex"]].head(max_rows_show).copy()
-    view_confirmed["✓"] = False
+    if len(pending_df) == 0:
+        st.info("✨ Tidak ada item pending. Semua sudah diproses!")
+    else:
+        with st.form("form_pending"):
+            max_rows = min(len(pending_df), 5000)
+            view_pending = pending_df[["Type", "BrandGuess", var_col, qty_col, "TextSource", "OriginalIndex"]].head(max_rows).copy()
+            view_pending["✓"] = False
 
-    edited_confirmed = st.data_editor(
-        view_confirmed.drop(columns=["OriginalIndex"]),
-        use_container_width=True,
-        height=350,
-        num_rows="fixed",
-        column_config={
-            "✓": st.column_config.CheckboxColumn("✓", help="Centang untuk memilih"),
-            "Type": st.column_config.TextColumn("Type", width="small"),
-            "BrandGuess": st.column_config.TextColumn("Brand", width="small"),
-            var_col: st.column_config.TextColumn(var_col, width="medium"),
-            qty_col: st.column_config.NumberColumn(qty_col, width="small"),
-            "TextSource": st.column_config.TextColumn("Text Source", width="large"),
-        },
-        disabled=["Type", "BrandGuess", var_col, qty_col, "TextSource"],
-        key="editor_confirmed"
-    )
+            edited_pending = st.data_editor(
+                view_pending.drop(columns=["OriginalIndex"]),
+                use_container_width=True,
+                height=400,
+                num_rows="fixed",
+                column_config={
+                    "✓": st.column_config.CheckboxColumn("✓", width="small"),
+                    "Type": st.column_config.TextColumn("Type", width="small"),
+                    "BrandGuess": st.column_config.TextColumn("Brand", width="small"),
+                    var_col: st.column_config.TextColumn(var_col, width="medium"),
+                    qty_col: st.column_config.NumberColumn(qty_col, width="small"),
+                    "TextSource": st.column_config.TextColumn("Text Source", width="large"),
+                },
+                disabled=["Type", "BrandGuess", var_col, qty_col, "TextSource"],
+                key="editor_pending"
+            )
 
-    col1, col2 = st.columns(2)
-    with col1:
-        btn_back_to_processed = st.form_submit_button("⬅️ Balik ke Sudah Diproses", use_container_width=True)
-    with col2:
-        btn_back_all = st.form_submit_button("⬅️ Semua → Sudah Diproses", use_container_width=True)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                btn_to_processed = st.form_submit_button("➡️ Ke Sudah Diproses", use_container_width=True)
+            with col2:
+                btn_to_confirmed = st.form_submit_button("⏭️ Langsung Konfirmasi", use_container_width=True)
+            with col3:
+                btn_all_to_processed = st.form_submit_button("➡️➡️ Semua → Processed", use_container_width=True)
 
-    if btn_back_to_processed or btn_back_all:
-        mask = edited_confirmed["✓"] if btn_back_to_processed else pd.Series([True] * len(edited_confirmed))
-        selected_ids = view_confirmed.loc[mask.to_numpy(), "OriginalIndex"].tolist()
+            if btn_to_processed or btn_all_to_processed:
+                mask = edited_pending["✓"] if btn_to_processed else pd.Series([True] * len(edited_pending))
+                selected_ids = view_pending.loc[mask.to_numpy(), "OriginalIndex"].tolist()
+                if selected_ids:
+                    processed_ids.update(selected_ids)
+                    st.session_state["processed_ids"] = processed_ids
+                    auto_save()
+                    st.rerun()
 
-        if selected_ids:
-            confirmed_ids.difference_update(selected_ids)
-            processed_ids.update(selected_ids)
-            st.session_state["confirmed_ids"] = confirmed_ids
-            st.session_state["processed_ids"] = processed_ids
-            auto_save()
-            st.rerun()
+            if btn_to_confirmed:
+                mask = edited_pending["✓"]
+                selected_ids = view_pending.loc[mask.to_numpy(), "OriginalIndex"].tolist()
+                if selected_ids:
+                    confirmed_ids.update(selected_ids)
+                    st.session_state["confirmed_ids"] = confirmed_ids
+                    auto_save()
+                    st.rerun()
+
+# ============================================================================
+# TAB 2: PROCESSED
+# ============================================================================
+
+with tab2:
+    st.caption("Item yang sedang diproses. Centang untuk memindahkan ke tahap lain.")
+
+    if len(processed_df) == 0:
+        st.info("✨ Tidak ada item dalam proses.")
+    else:
+        with st.form("form_processed"):
+            max_rows = min(len(processed_df), 5000)
+            view_processed = processed_df[["Type", "BrandGuess", var_col, qty_col, "TextSource", "OriginalIndex"]].head(max_rows).copy()
+            view_processed["✓"] = False
+
+            edited_processed = st.data_editor(
+                view_processed.drop(columns=["OriginalIndex"]),
+                use_container_width=True,
+                height=400,
+                num_rows="fixed",
+                column_config={
+                    "✓": st.column_config.CheckboxColumn("✓", width="small"),
+                    "Type": st.column_config.TextColumn("Type", width="small"),
+                    "BrandGuess": st.column_config.TextColumn("Brand", width="small"),
+                    var_col: st.column_config.TextColumn(var_col, width="medium"),
+                    qty_col: st.column_config.NumberColumn(qty_col, width="small"),
+                    "TextSource": st.column_config.TextColumn("Text Source", width="large"),
+                },
+                disabled=["Type", "BrandGuess", var_col, qty_col, "TextSource"],
+                key="editor_processed"
+            )
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                btn_back_to_pending = st.form_submit_button("⬅️ Balik ke Pending", use_container_width=True)
+            with col2:
+                btn_proc_to_confirmed = st.form_submit_button("➡️ Ke Konfirmasi", use_container_width=True)
+            with col3:
+                btn_all_proc_to_confirmed = st.form_submit_button("➡️➡️ Semua → Konfirmasi", use_container_width=True)
+
+            if btn_back_to_pending:
+                mask = edited_processed["✓"]
+                selected_ids = view_processed.loc[mask.to_numpy(), "OriginalIndex"].tolist()
+                if selected_ids:
+                    processed_ids.difference_update(selected_ids)
+                    st.session_state["processed_ids"] = processed_ids
+                    auto_save()
+                    st.rerun()
+
+            if btn_proc_to_confirmed or btn_all_proc_to_confirmed:
+                mask = edited_processed["✓"] if btn_proc_to_confirmed else pd.Series([True] * len(edited_processed))
+                selected_ids = view_processed.loc[mask.to_numpy(), "OriginalIndex"].tolist()
+                if selected_ids:
+                    processed_ids.difference_update(selected_ids)
+                    confirmed_ids.update(selected_ids)
+                    st.session_state["processed_ids"] = processed_ids
+                    st.session_state["confirmed_ids"] = confirmed_ids
+                    auto_save()
+                    st.rerun()
+
+# ============================================================================
+# TAB 3: CONFIRMED
+# ============================================================================
+
+with tab3:
+    st.caption("Item yang sudah dikonfirmasi (final). Siap untuk di-download.")
+
+    if len(confirmed_df) == 0:
+        st.info("✨ Belum ada item yang dikonfirmasi.")
+    else:
+        with st.form("form_confirmed"):
+            max_rows = min(len(confirmed_df), 5000)
+            view_confirmed = confirmed_df[["Type", "BrandGuess", var_col, qty_col, "TextSource", "OriginalIndex"]].head(max_rows).copy()
+            view_confirmed["✓"] = False
+
+            edited_confirmed = st.data_editor(
+                view_confirmed.drop(columns=["OriginalIndex"]),
+                use_container_width=True,
+                height=400,
+                num_rows="fixed",
+                column_config={
+                    "✓": st.column_config.CheckboxColumn("✓", width="small"),
+                    "Type": st.column_config.TextColumn("Type", width="small"),
+                    "BrandGuess": st.column_config.TextColumn("Brand", width="small"),
+                    var_col: st.column_config.TextColumn(var_col, width="medium"),
+                    qty_col: st.column_config.NumberColumn(qty_col, width="small"),
+                    "TextSource": st.column_config.TextColumn("Text Source", width="large"),
+                },
+                disabled=["Type", "BrandGuess", var_col, qty_col, "TextSource"],
+                key="editor_confirmed"
+            )
+
+            col1, col2 = st.columns(2)
+            with col1:
+                btn_back_to_processed = st.form_submit_button("⬅️ Balik ke Processed", use_container_width=True)
+            with col2:
+                btn_back_all = st.form_submit_button("⬅️⬅️ Semua → Processed", use_container_width=True)
+
+            if btn_back_to_processed or btn_back_all:
+                mask = edited_confirmed["✓"] if btn_back_to_processed else pd.Series([True] * len(edited_confirmed))
+                selected_ids = view_confirmed.loc[mask.to_numpy(), "OriginalIndex"].tolist()
+                if selected_ids:
+                    confirmed_ids.difference_update(selected_ids)
+                    processed_ids.update(selected_ids)
+                    st.session_state["confirmed_ids"] = confirmed_ids
+                    st.session_state["processed_ids"] = processed_ids
+                    auto_save()
+                    st.rerun()
 
 # ============================================================================
 # DOWNLOAD SECTION
@@ -642,20 +727,21 @@ col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     st.download_button(
-        "📄 Semua (CSV)",
+        "📄 Semua Data (CSV)",
         data=to_csv_bytes(filtered),
-        file_name=f"{session_code}_semua_data.csv",
+        file_name=f"{session_code}_semua.csv",
         mime="text/csv",
         use_container_width=True
     )
 
 with col2:
     st.download_button(
-        "⚙️ Sudah Diproses (CSV)",
+        "⚙️ Processed (CSV)",
         data=to_csv_bytes(processed_df),
-        file_name=f"{session_code}_sudah_diproses.csv",
+        file_name=f"{session_code}_processed.csv",
         mime="text/csv",
-        use_container_width=True
+        use_container_width=True,
+        disabled=len(processed_df) == 0
     )
 
 with col3:
@@ -664,7 +750,8 @@ with col3:
         data=to_csv_bytes(confirmed_df),
         file_name=f"{session_code}_konfirmasi.csv",
         mime="text/csv",
-        use_container_width=True
+        use_container_width=True,
+        disabled=len(confirmed_df) == 0
     )
 
 with col4:
@@ -673,13 +760,13 @@ with col4:
         data=to_xlsx_bytes(confirmed_df),
         file_name=f"{session_code}_konfirmasi.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True
+        use_container_width=True,
+        disabled=len(confirmed_df) == 0
     )
 
 # ============================================================================
-# FOOTER INFO
+# FOOTER
 # ============================================================================
 
 st.markdown("---")
-st.caption(f"📊 Ringkasan: {len(pending_df)} Pending | {len(processed_df)} Processed | {len(confirmed_df)} Confirmed | {len(filtered)} Total")
-st.caption(f"💾 Auto-save aktif • Session: **{session_code}** • Akses dari perangkat lain dengan kode yang sama")
+st.caption(f"💾 Auto-save aktif • Session: **{session_code}** • File: {file_name} • {len(filtered)} items (setelah filter)")
