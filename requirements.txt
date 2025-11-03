@@ -1,0 +1,20 @@
+# Windows Driver Checker Requirements
+# Python 3.7+ required
+
+# GUI and Windows-specific libraries are built-in:
+# - tkinter (built-in with Python on Windows)
+# - ctypes (built-in)
+# - subprocess (built-in)
+# - winreg (built-in on Windows)
+
+# Optional: Enhanced GUI styling (uncomment if desired)
+# ttkbootstrap>=1.10.1
+# pillow>=10.0.0
+
+# For development and testing
+# pytest>=7.4.0
+# pytest-cov>=4.1.0
+
+# Note: This application requires Windows OS
+# and should be run with Administrator privileges
+# for full functionality
